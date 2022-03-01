@@ -1,5 +1,5 @@
 ### which branch to use:
-In this branch (`justMergeFlow`) is variant which produce 'merge' flows to stdout. **If you don't want to compare persist/merge flows**, use `comparePersistToMergeBehavior` branch. 
+In this branch (`justMergeFlow`) is variant which produce 'merge' flows to stdout. **If you want to compare persist/merge flows**, use `comparePersistToMergeBehavior` branch. 
 
 ### where is the crux of all this:
 
