@@ -6,10 +6,14 @@ import alfonz19.orphanRemovalTest.jpa.entities.ItemCode;
 import alfonz19.orphanRemovalTest.jpa.entities.TopLevelEntity;
 import lombok.AllArgsConstructor;
 
+import java.io.File;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -23,9 +27,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @AllArgsConstructor
-public class TestMergeAndUpdatingWhenDetached {
+public class TestUseMergeInsteadOfPersistIfFindIsUsedFirst {
 
-    private static final Logger log = LoggerFactory.getLogger(TestMergeAndUpdatingWhenDetached.class);
+    private static final Logger log = LoggerFactory.getLogger(TestUseMergeInsteadOfPersistIfFindIsUsedFirst.class);
 
     private static final String TLE_ID = "ManualTest1";
     private static final String FIRST_ITEM_CODE = "code1";
@@ -42,12 +46,10 @@ public class TestMergeAndUpdatingWhenDetached {
 //    @EventListener(ApplicationReadyEvent.class)
     public void doTest() {
         hashCodes.clear();
-        TopLevelEntity detachedTopLevelEntity = transactionTemplate.execute(status -> persistRecord());
-
         transactionTemplate.execute(new TransactionCallbackWithoutResult() {
             @Override
             protected void doInTransactionWithoutResult(TransactionStatus status) {
-                updateExisting(detachedTopLevelEntity);
+                action();
             }
         });
 
@@ -61,9 +63,10 @@ public class TestMergeAndUpdatingWhenDetached {
         });
     }
 
-    private TopLevelEntity persistRecord() {
-        String actionName = "PERSIST";
-        logSeparator("testing using "+actionName, '=');
+    private void action() {
+        String actionName = "MERGE-PRECEDED-BY-FIND";
+
+        logSeparator("testing using "+ "MERGE-PRECEDED-BY-FIND", '=');
 
         TopLevelEntity entity = new TopLevelEntity();
         entity.setTleCode(TLE_ID);
@@ -75,40 +78,27 @@ public class TestMergeAndUpdatingWhenDetached {
         logSeparator("entities created");
         printTopLevelEntity("top-level entity before calling _save_ ", entity);
         printAssociationEntities("association entities before calling _save_: ", entity);
+
+        Optional<TopLevelEntity> byId = topLevelEntityRepository.findById(entity.getTleCode());
+        log("entity by that id exist: "+byId.isPresent());
+
         logSeparator(String.format("call to %s", actionName));
-        entity = topLevelEntityRepository.persist(entity);
-        logSeparator("tx end");
-        return entity;
-    }
+        entity = topLevelEntityRepository.merge(entity);
 
-    private void updateExisting(TopLevelEntity detachedTopLevelEntity) {
-        logSeparator(String.format("merging and updating entity"));
+        printTopLevelEntity("top-level entity after _save_: ", entity);
+        printAssociationEntities("association entities after _save_: ", entity);
 
-        printTopLevelEntity("top-level entity before merge: ", detachedTopLevelEntity);
-        printAssociationEntities("association entities before merge: ", detachedTopLevelEntity);
+        logSeparator(String.format("Updating association entities after %s", actionName));
 
+        entity.getItems().removeIf(e -> e.getPk().getItemCode().equals(FIRST_ITEM_CODE));
 
-        logSeparator(String.format("Updating association entities on detached entity"));
-
-
-        detachedTopLevelEntity.getItems().removeIf(e -> e.getPk().getItemCode().equals(FIRST_ITEM_CODE));
-
-        ItemCode secondAssoc = createAssociatedEntity(SECOND_ITEM_CODE, detachedTopLevelEntity);
-        detachedTopLevelEntity.getItems().add(secondAssoc);
-
-        printTopLevelEntity("top-level entity after update: ", detachedTopLevelEntity);
-        printAssociationEntities("association entities after update: ", detachedTopLevelEntity);
-
-        logSeparator(String.format("merging"));
-        TopLevelEntity entity = topLevelEntityRepository.merge(detachedTopLevelEntity);
-
-        printTopLevelEntity("top-level entity after merge: ", detachedTopLevelEntity);
-        printAssociationEntities("association entities after merge: ", detachedTopLevelEntity);
-
-
+        ItemCode secondAssoc = createAssociatedEntity(SECOND_ITEM_CODE, entity);
+        entity.getItems().add(secondAssoc);
 
         logSeparator("done, tx about to end.", '=');
 
+        printTopLevelEntity("top level entity after update: ", entity);
+        printAssociationEntities("association entities after update: ", entity);
         logSeparator("tx end");
     }
 
