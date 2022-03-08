@@ -6,13 +6,10 @@ import alfonz19.orphanRemovalTest.jpa.entities.ItemCode;
 import alfonz19.orphanRemovalTest.jpa.entities.TopLevelEntity;
 import lombok.AllArgsConstructor;
 
-import java.io.File;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -26,9 +23,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @AllArgsConstructor
-public class TestClass {
+public class TestMergeAndUpdatingWhenDetached {
 
-    private static final Logger log = LoggerFactory.getLogger(TestClass.class);
+    private static final Logger log = LoggerFactory.getLogger(TestMergeAndUpdatingWhenDetached.class);
 
     private static final String TLE_ID = "ManualTest1";
     private static final String FIRST_ITEM_CODE = "code1";
@@ -39,22 +36,18 @@ public class TestClass {
     private final ItemRepository itemRepository;
     private final TransactionTemplate transactionTemplate;
 
-    private final File persistFile = new File(new File(System.getProperty("java.io.tmpdir")), "saveTest_persist.txt");
-    private final File mergeFile = new File(new File(System.getProperty("java.io.tmpdir")), "saveTest_merge.txt");
     //for quicker human-eyes comparison of hashcode value.
     private final Map<Integer, String> hashCodes = new HashMap<>();
 
-//    @EventListener(ApplicationReadyEvent.class)
+    @EventListener(ApplicationReadyEvent.class)
     public void doTest() {
-        doTest("MERGE", topLevelEntityRepository::merge);
-    }
-
-    private void doTest(String actionName, final Function<TopLevelEntity, TopLevelEntity> saveAction) {
         hashCodes.clear();
+        TopLevelEntity detachedTopLevelEntity = transactionTemplate.execute(status -> persistRecord());
+
         transactionTemplate.execute(new TransactionCallbackWithoutResult() {
             @Override
             protected void doInTransactionWithoutResult(TransactionStatus status) {
-                action(actionName, saveAction);
+                updateExisting(detachedTopLevelEntity);
             }
         });
 
@@ -68,7 +61,8 @@ public class TestClass {
         });
     }
 
-    private void action(String actionName, Function<TopLevelEntity, TopLevelEntity> saveAction) {
+    private TopLevelEntity persistRecord() {
+        String actionName = "PERSIST";
         logSeparator("testing using "+actionName, '=');
 
         TopLevelEntity entity = new TopLevelEntity();
@@ -80,27 +74,41 @@ public class TestClass {
 
         logSeparator("entities created");
         printTopLevelEntity("top-level entity before calling _save_ ", entity);
-        List<ItemCode> assocBackup = new ArrayList<>(entity.getItems());
         printAssociationEntities("association entities before calling _save_: ", entity);
         logSeparator(String.format("call to %s", actionName));
-        entity = saveAction.apply(entity);
+        entity = topLevelEntityRepository.persist(entity);
+        logSeparator("tx end");
+        return entity;
+    }
 
-        printTopLevelEntity("top-level entity after _save_: ", entity);
-        printAssociationEntities("association entities after _save_: ", entity);
-        printAssociationEntities("association entities from backup after _save_: ", assocBackup);
+    private void updateExisting(TopLevelEntity detachedTopLevelEntity) {
+        logSeparator(String.format("merging and updating entity"));
 
-        logSeparator(String.format("Updating association entities after %s", actionName));
+        printTopLevelEntity("top-level entity before merge: ", detachedTopLevelEntity);
+        printAssociationEntities("association entities before merge: ", detachedTopLevelEntity);
 
-        entity.getItems().removeIf(e -> e.getPk().getItemCode().equals(FIRST_ITEM_CODE));
 
-        ItemCode secondAssoc = createAssociatedEntity(SECOND_ITEM_CODE, entity);
-        entity.getItems().add(secondAssoc);
+        logSeparator(String.format("Updating association entities on detached entity"));
+
+
+        detachedTopLevelEntity.getItems().removeIf(e -> e.getPk().getItemCode().equals(FIRST_ITEM_CODE));
+
+        ItemCode secondAssoc = createAssociatedEntity(SECOND_ITEM_CODE, detachedTopLevelEntity);
+        detachedTopLevelEntity.getItems().add(secondAssoc);
+
+        printTopLevelEntity("top-level entity after update: ", detachedTopLevelEntity);
+        printAssociationEntities("association entities after update: ", detachedTopLevelEntity);
+
+        logSeparator(String.format("merging"));
+        TopLevelEntity entity = topLevelEntityRepository.merge(detachedTopLevelEntity);
+
+        printTopLevelEntity("top-level entity after merge: ", detachedTopLevelEntity);
+        printAssociationEntities("association entities after merge: ", detachedTopLevelEntity);
+
+
 
         logSeparator("done, tx about to end.", '=');
 
-        printTopLevelEntity("top level entity after update: ", entity);
-        printAssociationEntities("association entities after update: ", entity);
-        printAssociationEntities("association entities from backup after update: ", assocBackup);
         logSeparator("tx end");
     }
 
